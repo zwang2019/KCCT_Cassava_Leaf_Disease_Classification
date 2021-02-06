@@ -86,10 +86,12 @@ class CassavaDataset(Dataset):
                 'max_soft': 0.3,
                 'reformulate': False
             },
+            fmix_probablity=0.5,
             do_cutmix=False,
             cutmix_params={
                 'alpha': 1,
-            }):
+            },
+            cutmix_probablity=0.5):
         '''
         Args:
             df : DataFrame , The file name and label of the sample image
@@ -99,8 +101,10 @@ class CassavaDataset(Dataset):
             one_hot_label : bool , Whether onehot coding
             do_fmix : bool , Whether to use fmix
             fmix_params :dict , fmix parameters {'alpha':1.,'decay_power':3.,'shape':(256,256),'max_soft':0.3,'reformulate':False}
+            fmix_probablity: float, the probablity of fmix happens, default to 50%
             do_cutmix : bool, Whether to use cutmix
             cutmix_params : dict , cutmix parameters {'alpha':1.}
+            cutmix_probablity: float, the probablity of cutmix happens, default to 50%
         Raises:
 
         '''
@@ -110,8 +114,10 @@ class CassavaDataset(Dataset):
         self.data_root = data_root
         self.do_fmix = do_fmix
         self.fmix_params = fmix_params
+        self.fmix_probablity = fmix_probablity
         self.do_cutmix = do_cutmix
         self.cutmix_params = cutmix_params
+        self.cutmix_probablity = cutmix_probablity
         self.output_label = output_label
         self.one_hot_label = one_hot_label
         if output_label:
@@ -141,7 +147,7 @@ class CassavaDataset(Dataset):
             img = self.transforms(image=img)['image']
 
         if self.do_fmix and np.random.uniform(
-                0., 1., size=1)[0] > 0.5:  # 50% chance of triggering FMIX data augmentation (probability can be modified)
+                0., 1., size=1)[0] > (1 - self.fmix_probablity):  # fmix_probablity chance of triggering FMIX data augmentation (probability can be modified)
 
             with torch.no_grad():
                 lam, mask = sample_mask(
@@ -165,7 +171,7 @@ class CassavaDataset(Dataset):
                     1. - rate) * self.labels[fmix_ix]  # Target to mix (should use one-hot first !)
 
         if self.do_cutmix and np.random.uniform(
-                0., 1., size=1)[0] > 0.5:  # 50% chance to trigger cutmix data augmentation (probability can be modified)
+                0., 1., size=1)[0] > (1 - self.cutmix_probablity):  # cutmix_probablity chance to trigger cutmix data augmentation (probability can be modified)
             with torch.no_grad():
                 cmix_ix = np.random.choice(self.df.index, size=1)[0]
                 cmix_img = get_img(
