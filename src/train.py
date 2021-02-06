@@ -83,7 +83,7 @@ CFG = {
     'epochs': 15,
     'fold_num': 5,
     'device': 'cuda',
-    'model_arch': 'tf_efficientnet_b4_ns',
+    'model_arch': ['tf_efficientnet_b4_ns', 'resnext50d_32x4d', 'resnext101_32x8d', ],
     'train_bs' : 32,
     'valid_bs' : 32,
     'num_workers' : 4,
@@ -102,64 +102,66 @@ val_transform = get_valid_transforms()
 
 
 ###########################
-
+first_fold = 0
 for fold, (trn_idx, val_idx) in enumerate(folds):
-    print('Training with {} started'.format(fold))
-    print('Train : {}, Val : {}'.format(len(trn_idx), len(val_idx)))
-    train_loader, val_loader = utils.prepare_dataloader(train,
-                                                      trn_idx,
-                                                      val_idx,
-                                                      data_root = train_img_path,
-                                                      trn_transform = trn_transform,
-                                                      val_transform = val_transform,
-                                                      bs = CFG['train_bs'],
-                                                      n_job = CFG['num_workers'])
+    if fold == 0:
 
-    device = torch.device(CFG['device'])
+        print('Training with {} started'.format(fold))
+        print('Train : {}, Val : {}'.format(len(trn_idx), len(val_idx)))
+        train_loader, val_loader = utils.prepare_dataloader(train,
+                                                          trn_idx,
+                                                          val_idx,
+                                                          data_root = train_img_path,
+                                                          trn_transform = trn_transform,
+                                                          val_transform = val_transform,
+                                                          bs = CFG['train_bs'],
+                                                          n_job = CFG['num_workers'])
 
-    model = CassvaImgClassifier(CFG['model_arch'],
-                                train.label.nunique(),
-                                pretrained=True).to(device)
-    scaler = GradScaler()
-    optimizer = torch.optim.Adam(model.parameters(),
-                                 lr=CFG['lr'],
-                                 weight_decay=CFG['weight_decay'])
+        device = torch.device(CFG['device'])
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer,
-        T_0=CFG['T_0'],
-        T_mult=1,
-        eta_min=CFG['min_lr'],
-        last_epoch=-1)
+        model = CassvaImgClassifier(CFG['model_arch'][1],
+                                    train.label.nunique(),
+                                    pretrained=True).to(device)
+        scaler = GradScaler()
+        optimizer = torch.optim.Adam(model.parameters(),
+                                     lr=CFG['lr'],
+                                     weight_decay=CFG['weight_decay'])
 
-    loss_tr = nn.CrossEntropyLoss().to(
-        device)
-    loss_fn = nn.CrossEntropyLoss().to(device)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer,
+            T_0=CFG['T_0'],
+            T_mult=1,
+            eta_min=CFG['min_lr'],
+            last_epoch=-1)
 
-    for epoch in range(CFG['epochs']):
-        utils.train_one_epoch(epoch,
-                            model,
-                            loss_tr,
-                            optimizer,
-                            train_loader,
-                            device,
-                            scaler,
-                            scheduler=scheduler,
-                            schd_batch_update=False)
+        loss_tr = nn.CrossEntropyLoss().to(
+            device)
+        loss_fn = nn.CrossEntropyLoss().to(device)
 
-        with torch.no_grad():
-            utils.valid_one_epoch(epoch,
+        for epoch in range(CFG['epochs']):
+            utils.train_one_epoch(epoch,
                                 model,
-                                loss_fn,
-                                val_loader,
-                                device)
+                                loss_tr,
+                                optimizer,
+                                train_loader,
+                                device,
+                                scaler,
+                                scheduler=scheduler,
+                                schd_batch_update=False)
 
-        torch.save(
-            model.state_dict(),
-            '../model/{}_fold_{}_{}'.format(CFG['model_arch'], fold, epoch))
+            with torch.no_grad():
+                utils.valid_one_epoch(epoch,
+                                    model,
+                                    loss_fn,
+                                    val_loader,
+                                    device)
 
-    del model, optimizer, train_loader, val_loader, scaler, scheduler
-    torch.cuda.empty_cache()
+            torch.save(
+                model.state_dict(),
+                '../model/{}_fold_{}_{}'.format(CFG['model_arch'], fold, epoch))
+
+        del model, optimizer, train_loader, val_loader, scaler, scheduler
+        torch.cuda.empty_cache()
 
 
 
