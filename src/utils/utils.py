@@ -13,6 +13,7 @@ from . import fmix
 from tqdm import tqdm
 from torch.utils.data import Dataset
 from torch.cuda.amp import autocast
+import copy
 
 
 def seed_everything(seed):
@@ -149,8 +150,8 @@ class CassavaDataset(Dataset):
                     raise ValueError("labels must be 1-D list or array")
                 self.labels = torch.LongTensor(self.labels).view(-1, 1)
 
-                # tensored = torch.tensor(self.labels)
-                filled = torch.zeros(self.df.shape[0], self.df['label'].max() + 1).fill_(0.05 / self.df['label'].max())
+                zeros_tensor = torch.zeros(self.df.shape[0], self.df['label'].max() + 1)
+                filled = zeros_tensor.fill_(0.05 / self.df['label'].max())
                 self.labels = filled.scatter_(1, self.labels, 0.95) # Generate the label smoothing
 
     def __len__(self):
@@ -311,19 +312,20 @@ def train_one_epoch(epoch,
 
     for step, (imgs, image_labels) in pbar:  # Iterate through each batch
         imgs = imgs.to(device).float()
-        image_labels = image_labels.to(device).long()
-
+        image_labels = image_labels.to(device)
+        #TODO
+        # test double()
+        # image_labels = image_labels.to(device).double()
         with autocast():  # Enable automatic mix accuracy
             image_preds = model(imgs)  # Propagate forward and calculate the predicted value
             loss = loss_fn(image_preds, image_labels)  # Calculating the loss
 
         scaler.scale(loss).backward()  # scale gradient
-
         # loss regularization with exponential average
         if running_loss is None:
-            running_loss = loss.item()
+            running_loss = copy.copy(loss)
         else:
-            running_loss = running_loss * .99 + loss.item() * .01
+            running_loss = running_loss * .99 + copy.copy(loss) * .01
 
         if ((step + 1) % accum_iter == 0) or ((step + 1) == len(train_loader)):
             scaler.step(
@@ -369,11 +371,11 @@ def valid_one_epoch(epoch, model, loss_fn, val_loader, device):
         image_preds_all += [
             torch.argmax(image_preds, 1).detach().cpu().numpy()
         ]  # Get the prediction labels
-        image_targets_all += [image_labels.detach().cpu().numpy()]  # Get the true labels
+        image_targets_all += [torch.argmax(image_labels, 1).detach().cpu().numpy()]  # Get the true labels
 
         loss = loss_fn(image_preds, image_labels)  # Calculating loss
 
-        loss_sum += loss.item() * image_labels.shape[0]  # Calculating loss sum
+        loss_sum += copy.copy(loss) * image_labels.shape[0]  # Calculating loss sum
         sample_num += image_labels.shape[0]  # sample size
 
         description = f'epoch {epoch} loss: {loss_sum/sample_num:.4f}'  # Print Average Loss

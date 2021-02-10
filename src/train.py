@@ -478,13 +478,13 @@ def get_scheduler(optimizer):
 
 def get_criterion():
     if CFG.criterion == 'LabelSmoothing':
-        criterion = LabelSmoothingLoss(classes=CFG.target_size, smoothing=CFG.smoothing)
+        criterion = LabelSmoothingLoss()
     elif CFG.criterion == 'FocalLoss':
         criterion = FocalLoss()
     elif CFG.criterion == 'BiTemperedLoss':
         criterion = BiTemperedLogisticLoss(t1=CFG.t1, t2=CFG.t2, smoothing=CFG.smoothing)
     elif CFG.criterion == 'TaylorCrossEntropyLoss':
-        criterion = TaylorCrossEntropyLoss(smoothing=CFG.smoothing)
+        criterion = TaylorCrossEntropyLoss()
     return criterion
 
 
@@ -499,11 +499,12 @@ class CFG:
     print_freq = 100
     num_workers = 4
     # model_name='resnext50_32x4d'
-    model_arch = 'tf_efficientnet_b3_ns'
+    model_arch = 'tf_efficientnet_b4_ns'
     img_size = 512
     scheduler = 'CosineAnnealingWarmRestarts'  # ['ReduceLROnPlateau', 'CosineAnnealingLR', 'CosineAnnealingWarmRestarts']
+    # criterion = 'LabelSmoothing'  # ['CrossEntropyLoss', LabelSmoothing', 'FocalLoss' 'FocalCosineLoss', 'SymmetricCrossEntropyLoss', 'BiTemperedLoss', 'TaylorCrossEntropyLoss']
     criterion = 'TaylorCrossEntropyLoss'  # ['CrossEntropyLoss', LabelSmoothing', 'FocalLoss' 'FocalCosineLoss', 'SymmetricCrossEntropyLoss', 'BiTemperedLoss', 'TaylorCrossEntropyLoss']
-    epochs = 10
+    epochs = 5
     # factor=0.2 # ReduceLROnPlateau
     # patience=4 # ReduceLROnPlateau
     # eps=1e-6 # ReduceLROnPlateau
@@ -511,9 +512,9 @@ class CFG:
     T_0 = 10  # CosineAnnealingWarmRestarts
     lr = 1e-4
     min_lr = 1e-6
-    batch_size = 32
-    train_bs = 32
-    valid_bs = 32
+    # batch_size = 32
+    train_bs = 16
+    valid_bs = 16
     weight_decay = 1e-6
     gradient_accumulation_steps = 1
     max_grad_norm = 1000
