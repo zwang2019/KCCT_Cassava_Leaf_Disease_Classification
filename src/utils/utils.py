@@ -109,10 +109,12 @@ class CassavaDataset(Dataset):
                 'max_soft': 0.3,
                 'reformulate': False
             },
+            fmix_probability=0.5,
             do_cutmix=False,
             cutmix_params={
                 'alpha': 1,
-            }):
+            },
+            cutmix_probability=0.5):
         '''
         Args:
             df : DataFrame , The file name and label of the sample image
@@ -133,14 +135,23 @@ class CassavaDataset(Dataset):
         self.data_root = data_root
         self.do_fmix = do_fmix
         self.fmix_params = fmix_params
+        self.fmix_probablity = fmix_probability
         self.do_cutmix = do_cutmix
         self.cutmix_params = cutmix_params
+        self.cutmix_probability = cutmix_probability
         self.output_label = output_label
         self.label_smoothing = label_smoothing
         if output_label:
             self.labels = self.df['label'].values
             if label_smoothing:
-                self.labels = torch.zeros(self.df.shape[0], self.df['label'].max() + 1).fill_(0.05 / self.df['label'].max()).scatter_(1, self.labels, 0.95) # Generate the label smoothing
+
+                if not isinstance(self.labels, (list, np.ndarray)):
+                    raise ValueError("labels must be 1-D list or array")
+                self.labels = torch.LongTensor(self.labels).view(-1, 1)
+
+                # tensored = torch.tensor(self.labels)
+                filled = torch.zeros(self.df.shape[0], self.df['label'].max() + 1).fill_(0.05 / self.df['label'].max())
+                self.labels = filled.scatter_(1, self.labels, 0.95) # Generate the label smoothing
 
     def __len__(self):
         return self.df.shape[0]
@@ -163,10 +174,10 @@ class CassavaDataset(Dataset):
             img = self.transforms(image=img)['image']
 
         if self.do_fmix and np.random.uniform(
-                0., 1., size=1)[0] > 0.5:  # 50% chance of triggering FMIX data augmentation (probability can be modified)
+                0., 1., size=1)[0] > (1 - self.fmix_probablity):  # 50% chance of triggering FMIX data augmentation (probability can be modified)
 
             with torch.no_grad():
-                lam, mask = sample_mask(
+                lam, mask = fmix.sample_mask(
                     **self.fmix_params)  # Can be modified, which uses the clip to specify the upper and lower limits
 
                 fmix_ix = np.random.choice(self.df.index,
@@ -187,7 +198,7 @@ class CassavaDataset(Dataset):
                     1. - rate) * self.labels[fmix_ix]  # Target to mix (should use one-hot first !)
 
         if self.do_cutmix and np.random.uniform(
-                0., 1., size=1)[0] > 0.5:  # 50% chance to trigger cutmix data augmentation (probability can be modified)
+                0., 1., size=1)[0] > (1 - self.cutmix_probability):  # 50% chance to trigger cutmix data augmentation (probability can be modified)
             with torch.no_grad():
                 cmix_ix = np.random.choice(self.df.index, size=1)[0]
                 cmix_img = get_img(
@@ -237,14 +248,14 @@ def prepare_dataloader(df, trn_idx, val_idx, data_root, trn_transform,
                               data_root,
                               transforms=trn_transform,
                               output_label=True,
-                              one_hot_label=False,
+                              label_smoothing=True,
                               do_fmix=False,
                               do_cutmix=False)
     valid_ds = CassavaDataset(valid_,
                               data_root,
                               transforms=val_transform,
                               output_label=True,
-                              one_hot_label=False,
+                              label_smoothing=True,
                               do_fmix=False,
                               do_cutmix=False)
 

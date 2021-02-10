@@ -387,7 +387,7 @@ class TaylorCrossEntropyLoss(nn.Module):
 # Training set augmentation
 def get_train_transforms():
     return Compose([
-        RandomResizedCrop(CFG['img_size'], CFG['img_size']),
+        RandomResizedCrop(CFG.img_size, CFG.img_size),
         Transpose(p=0.5),
         HorizontalFlip(p=0.5),
         VerticalFlip(p=0.5),
@@ -404,8 +404,8 @@ def get_train_transforms():
 # Validation set augmentation
 def get_valid_transforms():
     return Compose([
-        CenterCrop(CFG['img_size'], CFG['img_size'], p=1.),
-        Resize(CFG['img_size'], CFG['img_size']),
+        CenterCrop(CFG.img_size, CFG.img_size, p=1.),
+        Resize(CFG.img_size, CFG.img_size),
         Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], max_pixel_value=255.0, p=1.0),
         ToTensorV2(p=1.0),
     ], p=1.)
@@ -492,22 +492,48 @@ def get_criterion():
 
 
 # configuration
-CFG = {
-    'img_size': 512,
-    'epochs': 15,
-    'fold_num': 5,
-    'device': 'cuda',
-    'model_arch': 'tf_efficientnet_b4_ns',
-    'train_bs': 32,
-    'valid_bs': 32,
-    'num_workers': 4,
-    'lr': 1e-4,
-    'weight_decay': 1e-6,
-    'T_0': 10,
-    'min_lr': 1e-6,
-}
+class CFG:
+    debug = False
+    apex = False
+    device = 'cuda'
+    print_freq = 100
+    num_workers = 4
+    # model_name='resnext50_32x4d'
+    model_arch = 'tf_efficientnet_b3_ns'
+    img_size = 512
+    scheduler = 'CosineAnnealingWarmRestarts'  # ['ReduceLROnPlateau', 'CosineAnnealingLR', 'CosineAnnealingWarmRestarts']
+    criterion = 'TaylorCrossEntropyLoss'  # ['CrossEntropyLoss', LabelSmoothing', 'FocalLoss' 'FocalCosineLoss', 'SymmetricCrossEntropyLoss', 'BiTemperedLoss', 'TaylorCrossEntropyLoss']
+    epochs = 10
+    # factor=0.2 # ReduceLROnPlateau
+    # patience=4 # ReduceLROnPlateau
+    # eps=1e-6 # ReduceLROnPlateau
+    # T_max=10 # CosineAnnealingLR
+    T_0 = 10  # CosineAnnealingWarmRestarts
+    lr = 1e-4
+    min_lr = 1e-6
+    batch_size = 32
+    train_bs = 32
+    valid_bs = 32
+    weight_decay = 1e-6
+    gradient_accumulation_steps = 1
+    max_grad_norm = 1000
+    seed = 42
+    target_size = 5
+    target_col = 'label'
+    n_fold = 5
+    trn_fold = [0, 1, 2, 3, 4]
+    train = True
+    smoothing = 0.05
+    t1 = 0.3  # bi-tempered-loss https://www.kaggle.com/c/cassava-leaf-disease-classification/discussion/202017
+    t2 = 1.0  # bi-tempered-loss https://www.kaggle.com/c/cassava-leaf-disease-classification/discussion/202017
+
+
+if CFG.debug:
+    CFG.epochs = 1
+    # train = train.sample(n=1000, random_state=CFG.seed).reset_index(drop=True)
+
 train = pd.read_csv(train_csv_path)
-folds = StratifiedKFold(n_splits=CFG['fold_num'],
+folds = StratifiedKFold(n_splits=CFG.n_fold,
                         shuffle=True,
                         random_state=rand_seed).split(
     np.arange(train.shape[0]), train.label.values)
@@ -527,26 +553,26 @@ for fold, (trn_idx, val_idx) in enumerate(folds):
                                                             data_root=train_img_path,
                                                             trn_transform=trn_transform,
                                                             val_transform=val_transform,
-                                                            bs=CFG['train_bs'],
-                                                            n_job=CFG['num_workers'])
+                                                            bs=CFG.train_bs,
+                                                            n_job=CFG.num_workers)
 
-        device = torch.device(CFG['device'])
+        device = torch.device(CFG.device)
 
-        model = CassvaImgClassifier(CFG['model_arch'],
+        model = CassvaImgClassifier(CFG.model_arch,
                                     train.label.nunique(),
                                     pretrained=True).to(device)
         scaler = GradScaler()
         # optimizer = torch.optim.Adam(model.parameters(),
-        #                              lr=CFG['lr'],
-        #                              weight_decay=CFG['weight_decay'])
+        #                              lr=CFG.lr,
+        #                              weight_decay=CFGweight_decay)
 
         optimizer = Adam(model.parameters(), lr=CFG.lr, weight_decay=CFG.weight_decay, amsgrad=False)
 
         # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         #     optimizer,
-        #     T_0=CFG['T_0'],
+        #     T_0=CFG.T_0,
         #     T_mult=1,
-        #     eta_min=CFG['min_lr'],
+        #     eta_min=CFG.min_lr,
         #     last_epoch=-1)
 
         scheduler = get_scheduler(optimizer)
@@ -554,7 +580,7 @@ for fold, (trn_idx, val_idx) in enumerate(folds):
         loss_tr = get_criterion().to(device)
         loss_fn = get_criterion().to(device)
 
-        for epoch in range(CFG['epochs']):
+        for epoch in range(CFG.epochs):
             utils.train_one_epoch(epoch,
                                   model,
                                   loss_tr,
@@ -574,7 +600,7 @@ for fold, (trn_idx, val_idx) in enumerate(folds):
 
             torch.save(
                 model.state_dict(),
-                '../model/{}_fold_{}_{}'.format(CFG['model_arch'], fold, epoch))
+                '../model/{}_fold_{}_{}'.format(CFG.model_arch, fold, epoch))
 
         del model, optimizer, train_loader, val_loader, scaler, scheduler
         torch.cuda.empty_cache()
