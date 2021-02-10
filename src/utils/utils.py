@@ -8,6 +8,7 @@ import cv2
 import torch
 import random
 import numpy as np
+import pandas as pd
 from . import fmix
 from tqdm import tqdm
 from torch.utils.data import Dataset
@@ -27,6 +28,28 @@ def seed_everything(seed):
     torch.cuda.manual_seed(seed)  # Fixed CUDA calculating random seeds
     torch.backends.cudnn.deterministic = True  # Whether the calculation of the convolution operator is fixed.The underlying TORCH has different libraries to implement the convolution operator
     torch.backends.cudnn.benchmark = True  # Whether to enable automatic optimization and select the fastest convolution calculation method
+
+
+def create_result_folder(path):
+    '''Create a folder according to the path to store all the trained models obtained from this train
+    Args:
+        path : str  target path to be created, e.g '../models/new_folder'
+    '''
+    os.makedirs(path)
+
+
+def get_sub_training_set(original_df, frac=0.15):
+    '''Create subset of training csv input to acquire smaller input to save time for parameter optimization attempting
+    :param original_df: pandas.dataframe
+    :param frac: frac of subset from original dataframe for each label
+    :return: sub_df: pandas.dataframe
+    '''
+    labels = sorted(original_df['label'].unique())
+    sub_df = original_df[original_df['label'] == labels[0]].sample(frac=frac, replace=False)
+    for l in labels[1:]:
+        sub_df = pd.concat([sub_df, original_df[original_df['label'] == l].sample(frac=frac, replace=False)])
+    sub_df = sub_df.sample(frac=1).reset_index(drop=True)
+    return sub_df
 
 
 def get_img(path):
@@ -77,7 +100,7 @@ class CassavaDataset(Dataset):
             data_root,
             transforms=None,
             output_label=True,
-            one_hot_label=False,
+            label_smoothing=True,
             do_fmix=False,
             fmix_params={
                 'alpha': 1.,
@@ -86,25 +109,21 @@ class CassavaDataset(Dataset):
                 'max_soft': 0.3,
                 'reformulate': False
             },
-            fmix_probablity=0.5,
             do_cutmix=False,
             cutmix_params={
                 'alpha': 1,
-            },
-            cutmix_probablity=0.5):
+            }):
         '''
         Args:
             df : DataFrame , The file name and label of the sample image
             data_root : str , The file path where the image is located, absolute path
             transforms : object , Image augmentation
             output_label : bool , Whether output labels
-            one_hot_label : bool , Whether onehot coding
+            label_smoothing : bool , Whether label_smoothing
             do_fmix : bool , Whether to use fmix
             fmix_params :dict , fmix parameters {'alpha':1.,'decay_power':3.,'shape':(256,256),'max_soft':0.3,'reformulate':False}
-            fmix_probablity: float, the probablity of fmix happens, default to 50%
             do_cutmix : bool, Whether to use cutmix
             cutmix_params : dict , cutmix parameters {'alpha':1.}
-            cutmix_probablity: float, the probablity of cutmix happens, default to 50%
         Raises:
 
         '''
@@ -114,17 +133,14 @@ class CassavaDataset(Dataset):
         self.data_root = data_root
         self.do_fmix = do_fmix
         self.fmix_params = fmix_params
-        self.fmix_probablity = fmix_probablity
         self.do_cutmix = do_cutmix
         self.cutmix_params = cutmix_params
-        self.cutmix_probablity = cutmix_probablity
         self.output_label = output_label
-        self.one_hot_label = one_hot_label
+        self.label_smoothing = label_smoothing
         if output_label:
             self.labels = self.df['label'].values
-            if one_hot_label:
-                self.labels = np.eye(self.df['label'].max() +
-                                     1)[self.labels]  # Generate the Onehot coding with the unit matrix
+            if label_smoothing:
+                self.labels = torch.zeros(self.df.shape[0], self.df['label'].max() + 1).fill_(0.05 / self.df['label'].max()).scatter_(1, self.labels, 0.95) # Generate the label smoothing
 
     def __len__(self):
         return self.df.shape[0]
@@ -147,7 +163,7 @@ class CassavaDataset(Dataset):
             img = self.transforms(image=img)['image']
 
         if self.do_fmix and np.random.uniform(
-                0., 1., size=1)[0] > (1 - self.fmix_probablity):  # fmix_probablity chance of triggering FMIX data augmentation (probability can be modified)
+                0., 1., size=1)[0] > 0.5:  # 50% chance of triggering FMIX data augmentation (probability can be modified)
 
             with torch.no_grad():
                 lam, mask = sample_mask(
@@ -171,7 +187,7 @@ class CassavaDataset(Dataset):
                     1. - rate) * self.labels[fmix_ix]  # Target to mix (should use one-hot first !)
 
         if self.do_cutmix and np.random.uniform(
-                0., 1., size=1)[0] > (1 - self.cutmix_probablity):  # cutmix_probablity chance to trigger cutmix data augmentation (probability can be modified)
+                0., 1., size=1)[0] > 0.5:  # 50% chance to trigger cutmix data augmentation (probability can be modified)
             with torch.no_grad():
                 cmix_ix = np.random.choice(self.df.index, size=1)[0]
                 cmix_img = get_img(
